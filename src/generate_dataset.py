@@ -14,6 +14,7 @@ load_dotenv()
 
 res = 0.003
 eps_deg = 0.03
+time_scale = 0.003
 
 file = os.getenv('FIRMS')
 df = pd.read_csv(file)
@@ -22,15 +23,11 @@ df['acq_time_str'] = df['acq_time'].astype(str).str.zfill(4)
 df['datetime'] = pd.to_datetime(df['acq_date'] + ' ' + df['acq_time_str'], 
                                 format='%Y-%m-%d %H%M')
 
-res = 0.003
-eps_deg = 0.03
-
 df = df.sort_values('datetime')
 
 t0 = df['datetime'].min()
 df['time_min'] = (df['datetime'] - t0).dt.total_seconds() / 60.0
 
-time_scale = 0.003
 X = df[['latitude', 'longitude']].to_numpy()
 T = (df['time_min'].to_numpy() * time_scale).reshape(-1, 1)
 
