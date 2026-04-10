@@ -251,7 +251,7 @@ else:
         "lat": new_lat,
         "lon": new_lon
     })
-    goes_19_2_regridder = xe.Regridder(ds, target_ds, 'conservative', ignore_degenerate=True)
+    goes_19_2_regridder = xe.Regridder(ds, target_ds, 'conservative_normed', ignore_degenerate=True)
     with open("goes_19_2_regridder.pkl", "wb") as f:
         pickle.dump(goes_19_2_regridder, f)
 
