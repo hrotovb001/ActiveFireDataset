@@ -1,12 +1,12 @@
 from dotenv import load_dotenv
 import pandas as pd
 import numpy as np
-from itertools import islice
 import xarray as xr
 from sklearn.cluster import DBSCAN
 import odc.geo.xr
 import math
 import os
+import gc
 
 from process_timestep import process_timestep
 
@@ -80,11 +80,12 @@ for cluster_id, cluster in df.groupby('cluster', observed=False):
     try:
         time = cluster['datetime'].min() - pd.Timedelta(minutes=10)
         output = process_timestep(time, da)
-        import matplotlib.pyplot as plt
-        plt.imsave('input.png', output[0], cmap='gray')
-        plt.imsave('output.png', da.values, cmap='gray')
-        # np.save(f'/mnt/e/Dataset/tmp/{time.isoformat()}_{cluster_id}_input.npy', output)
-        # np.save(f'/mnt/e/Dataset/tmp/{time.isoformat()}_{cluster_id}_output.npy', da.values)
+        np.save(f'/mnt/e/Dataset/tmp/{time.isoformat()}_{cluster_id}_input.npy', output)
+        np.save(f'/mnt/e/Dataset/tmp/{time.isoformat()}_{cluster_id}_output.npy', da.values)
+        del output
     except Exception as e:
         print(e)
+
+    del da
+    gc.collect()
 

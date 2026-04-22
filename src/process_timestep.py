@@ -157,6 +157,27 @@ def convert_goes_to_lat_lon(ds):
     return ds
 
 
+def build_goes_regridder(file_path):
+    ds = xr.open_dataset(file_path, chunks="auto")
+    ds = convert_goes_to_lat_lon(ds)
+    ds['lon'] = xr.where(ds['lon'] < 0, ds['lon'] + 360, ds['lon'])
+    lats = xr.where(np.isfinite(ds.lat), ds.lat, np.nan)
+    lons = xr.where(np.isfinite(ds.lon), ds.lon, np.nan)
+    lat_min = float(lats.min())
+    lat_max = float(lats.max())
+    lon_min = max(180, float(lons.min()))
+    lon_max = float(lons.max())
+    new_lat = np.linspace(lat_min, lat_max, 3000)
+    new_lon = np.linspace(lon_min, lon_max, 5000)
+    target_ds = xr.Dataset({
+        "lat": new_lat, 
+        "lon": new_lon
+    })
+    regridder = xe.Regridder(ds, target_ds, 'conservative_normed', ignore_degenerate=True)
+    ds.close()
+    return regridder
+
+
 # initialize hrrr regridder
 print("Initializing HRRR regridder")
 if os.path.exists("hrrr_regridder.pkl"):
@@ -181,6 +202,7 @@ else:
         "lon": new_lon
     })
     hrrr_regridder = xe.Regridder(ds, target_ds, 'bilinear')
+    ds.close()
     with open("hrrr_regridder.pkl", "wb") as f:
         pickle.dump(hrrr_regridder, f)
 
@@ -191,19 +213,7 @@ if os.path.exists("goes_18_regridder.pkl"):
         goes_18_regridder = pickle.load(f)
 else:
     file_path = file_finder("goes-18", datetime(2025, 1, 1, 8, 27, 0))
-    ds = xr.open_dataset(file_path, chunks="auto")
-    ds = convert_goes_to_lat_lon(ds)
-    lat_min = float(ds.lat.min())
-    lat_max = float(ds.lat.max())
-    lon_min = float(ds.lon.min())
-    lon_max = float(ds.lon.max())
-    new_lat = np.linspace(lat_min, lat_max, 1650)
-    new_lon = np.linspace(lon_min, lon_max, 2750)
-    target_ds = xr.Dataset({
-        "lat": new_lat, 
-        "lon": new_lon
-    })
-    goes_18_regridder = xe.Regridder(ds, target_ds, 'conservative_normed', ignore_degenerate=True)
+    goes_18_regridder = build_goes_regridder(file_path)
     with open("goes_18_regridder.pkl", "wb") as f:
         pickle.dump(goes_18_regridder, f)
 
@@ -213,21 +223,7 @@ if os.path.exists("goes_19_1_regridder.pkl"):
         goes_19_1_regridder = pickle.load(f)
 else:
     file_path = file_finder("goes-19", datetime(2025, 1, 1, 6, 47, 0))
-    ds = xr.open_dataset(file_path, chunks="auto")
-    ds = convert_goes_to_lat_lon(ds)
-    finite_lats = ds.lat.where(np.isfinite(ds.lat))
-    finite_lons = ds.lon.where(np.isfinite(ds.lon))
-    lat_min = float(finite_lats.min())
-    lat_max = float(finite_lats.max())
-    lon_min = float(finite_lons.min())
-    lon_max = float(finite_lons.max())
-    new_lat = np.linspace(lat_min, lat_max, 1650)
-    new_lon = np.linspace(lon_min, lon_max, 2750)
-    target_ds = xr.Dataset({
-        "lat": new_lat,
-        "lon": new_lon
-    })
-    goes_19_1_regridder = xe.Regridder(ds, target_ds, 'conservative_normed', ignore_degenerate=True)
+    goes_19_1_regridder = build_goes_regridder(file_path)
     with open("goes_19_1_regridder.pkl", "wb") as f:
         pickle.dump(goes_19_1_regridder, f)
 
@@ -237,21 +233,7 @@ if os.path.exists("goes_19_2_regridder.pkl"):
         goes_19_2_regridder = pickle.load(f)
 else:
     file_path = file_finder("goes-19", datetime(2025, 4, 10, 5, 47, 0))
-    ds = xr.open_dataset(file_path, chunks="auto")
-    ds = convert_goes_to_lat_lon(ds)
-    finite_lats = ds.lat.where(np.isfinite(ds.lat))
-    finite_lons = ds.lon.where(np.isfinite(ds.lon))
-    lat_min = float(finite_lats.min())
-    lat_max = float(finite_lats.max())
-    lon_min = float(finite_lons.min())
-    lon_max = float(finite_lons.max())
-    new_lat = np.linspace(lat_min, lat_max, 1650)
-    new_lon = np.linspace(lon_min, lon_max, 2750)
-    target_ds = xr.Dataset({
-        "lat": new_lat,
-        "lon": new_lon
-    })
-    goes_19_2_regridder = xe.Regridder(ds, target_ds, 'conservative_normed', ignore_degenerate=True)
+    goes_19_2_regridder = build_goes_regridder(file_path)
     with open("goes_19_2_regridder.pkl", "wb") as f:
         pickle.dump(goes_19_2_regridder, f)
 
@@ -277,14 +259,9 @@ def process_timestep(dt, target_ds):
     total = ds["Power"].sum().values
     ds = convert_goes_to_lat_lon(ds)
     da = ds["Power"]
-    print("Before regridder: ", da.sum().values)
-    da = goes_regridder(da)
     da['lon'] = xr.where(da['lon'] < 0, da['lon'] + 360, da['lon'])
-    print("After regridder: ", da.sum().values)
-    print(da.lat.min(), da.lat.max())
-    print(da.lon.min(), da.lon.max())
-    if total > 0:
-        exit()
+    da = da.fillna(0)
+    da = goes_regridder(da)
     da = da.odc.assign_crs("EPSG:4326")
     da = da.odc.reproject(target_geobox, resampling="sum")
     da = da.fillna(0)
@@ -293,6 +270,7 @@ def process_timestep(dt, target_ds):
         raise ValueError("No GOES data for timestep: " + dt.isoformat())
 
     output[0] = da
+    ds.close()
 
     # elv
     file_path = file_finder("elv", dt)
@@ -304,6 +282,7 @@ def process_timestep(dt, target_ds):
     da = da.where(da >= 0, 0)
 
     output[1] = da
+    ds.close()
 
     # ast
     file_path = file_finder("ast", dt)
@@ -314,6 +293,7 @@ def process_timestep(dt, target_ds):
     da = da.odc.reproject(target_geobox, resampling="mode")
 
     output[2] = da
+    ds.close()
 
     # doy
     da = xr.DataArray(
@@ -337,6 +317,7 @@ def process_timestep(dt, target_ds):
     da = xr.where(da >= 24, da - 24, da)
 
     output[4] = da
+    ds.close()
 
     # fh
     file_path = file_finder("fh", dt)
@@ -349,6 +330,7 @@ def process_timestep(dt, target_ds):
     da = da.fillna(0)
 
     output[5] = da
+    ds.close()
 
     # vhi
     file_path_npp, file_path_j01 = file_finder("vhi", dt)
@@ -383,6 +365,7 @@ def process_timestep(dt, target_ds):
     da = da.fillna(0.5)
 
     output[6] = da
+    ds.close()
 
     # t2m, sh2
     file_path = file_finder("t2m", dt)
@@ -401,6 +384,8 @@ def process_timestep(dt, target_ds):
     output[7] = ds["t2m"]
     output[8] = ds["sh2"]
 
+    ds.close()
+
     # prate
     file_path = file_finder("prate", dt)
     ds = xr.open_dataset(
@@ -417,6 +402,8 @@ def process_timestep(dt, target_ds):
     da *= 3600
 
     output[9] = da
+
+    ds.close()
 
     # ws, wd
     file_path = file_finder("ws", dt)
@@ -438,6 +425,8 @@ def process_timestep(dt, target_ds):
 
     output[10] = ws
     output[11] = wd
+
+    ds.close()
 
     save_image_grid(output, cmap='viridis')
 
